@@ -1,0 +1,92 @@
+import express from "express";
+import cors from "cors";
+import dotenv from "dotenv";
+import { MongoClient, ServerApiVersion } from 'mongodb';
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 5000;
+
+// Middleware
+app.use(cors());
+app.use(express.json()); // to parse JSON request bodies
+
+//========================= MongoDB connection setup =========================//
+const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.negonxc.mongodb.net/?appName=Cluster0`;
+
+// Create a MongoClient with a MongoClientOptions object to set the Stable API version
+const client = new MongoClient(uri, {
+  serverApi: {
+    version: ServerApiVersion.v1,
+    strict: true,
+    deprecationErrors: true,
+  }
+});
+
+async function run() {
+  try {
+    // Connect the client to the server (optional starting in v4.7)
+    await client.connect();
+
+    const db = client.db("parcelDB");      // your database name
+    const parcelsCollection = db.collection("parcels"); // your collection
+
+    // get all parcels 
+    app.get("/parcels", async (req, res) => {
+      const parcels = await parcelsCollection.find().toArray();
+      res.json(parcels);
+    });
+
+    // GET: All parcels or parcels by user (senderEmail), sorted by latest
+    app.get("/parcels", async (req, res) => {
+        try {
+            const userEmail = req.query.senderEmail;
+            
+            const query = userEmail ? { senderEmail: userEmail } : {};
+            const options = {
+                sort: { createdAt: -1 } // Newest first
+            }
+
+            const parcels = await parcelsCollection.find(query, options).toArray();
+            res.send(parcels);
+        } catch (error) {
+            console.log("Error fetching parcels:", error)
+            res.status(500).json({ message: "Failed to get parcels." });
+        }
+    });
+
+
+    // POST: Create a new parcel 
+    app.post("/parcels", async (req, res) => {
+        try {
+            const newParcel = req.body;
+            const result = await parcelsCollection.insertOne(newParcel);
+            res.status(201).send(result);
+        } catch (error) {
+            console.log('Error inserting parcel:', error);
+            res.status(500).json({ message: "Failed to add parcel" });
+        }
+    });
+
+
+
+    // Send a ping to confirm a successful connection
+    await client.db("admin").command({ ping: 1 });
+    console.log("Pinged your deployment. You successfully connected to MongoDB!");
+  } finally {
+    // Ensures that the client will close when you finish/error
+    // await client.close();
+  }
+}
+run().catch(console.dir);
+
+// Sample route
+app.get("/", (req, res) => {
+  res.send("Parcel website server is running!");
+});
+
+// Start server
+app.listen(PORT, () => {
+  console.log(`Server is running on http://localhost:${PORT}`);
+});
