@@ -1,7 +1,7 @@
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
-import { MongoClient, ServerApiVersion } from 'mongodb';
+import { MongoClient, ObjectId, ServerApiVersion } from 'mongodb';
 
 dotenv.config();
 
@@ -69,6 +69,26 @@ async function run() {
         }
     });
 
+
+  // DELETE: delete a parcel by ID
+  app.delete("/parcels/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    const query = { _id: new ObjectId(id) };
+
+    const result = await parcelsCollection.deleteOne(query);
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({ message: "Parcel not found" });
+    }
+
+    res.send(result);
+  } catch (error) {
+    console.log("Error deleting parcel:", error);
+    res.status(500).json({ message: "Failed to delete parcel" });
+  }
+});
 
 
     // Send a ping to confirm a successful connection
