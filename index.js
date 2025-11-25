@@ -33,6 +33,7 @@ async function run() {
 
     const db = client.db("parcelDB");      // your database name
     const parcelsCollection = db.collection("parcels"); // your collection
+    const paymentsCollection = db.collection("payments"); // payment history collection
 
     // get all parcels 
     app.get("/parcels", async (req, res) => {
@@ -129,6 +130,65 @@ async function run() {
       res.status(500).json({ message: "Failed to create payment intent" });
     }
   });
+
+
+  // PATCH: Mark parcel as paid & add payment history
+app.post("/parcels/payment/:id", async (req, res) => {
+  try {
+    const parcelId = req.params.id;
+    const paymentInfo = req.body;
+
+    // 1️⃣ Update parcel payment status
+    const filter = { _id: new ObjectId(parcelId) };
+    const updateParcel = {
+      $set: {
+        paymentStatus: "paid",
+      }
+    };
+
+    const parcelResult = await parcelsCollection.updateOne(filter, updateParcel);
+
+    // 2️⃣ Insert into payment history
+    const paymentRecord = {
+      parcelId,
+      userEmail: paymentInfo.email,
+      amount: paymentInfo.amount,
+      paymentMethod: paymentInfo.paymentMethod,
+      status: "paid",
+      createdAt: new Date()
+    };
+
+    const paymentResult = await paymentsCollection.insertOne(paymentRecord);
+
+    res.status(201).send({
+      message: "Payment updated and recorded successfully",
+      insertedId: paymentResult.insertedId
+    })
+
+  } catch (error) {
+    console.log("Payment update error:", error);
+    res.status(500).json({ message: "Failed to update payment" });
+  }
+});
+
+  // GET: Payment history for a user
+app.get("/payments/user/:email", async (req, res) => {
+  try {
+    const email = req.params.email;
+
+    const query = { userEmail: email };
+    const options = { sort: { createdAt: -1 } };
+
+    const history = await paymentsCollection.find(query, options).toArray();
+
+    res.send(history);
+  } catch (error) {
+    console.log("Error fetching user payment history:", error);
+    res.status(500).json({ message: "Failed to load payment history" });
+  }
+});
+
+
 
 
     // Send a ping to confirm a successful connection
