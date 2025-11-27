@@ -32,8 +32,30 @@ async function run() {
     await client.connect();
 
     const db = client.db("parcelDB");      // your database name
+    const usersCollection = db.collection("users") // users collection 
     const parcelsCollection = db.collection("parcels"); // your collection
     const paymentsCollection = db.collection("payments"); // payment history collection
+    // const trackingCollection = db.collection("tracking"); // tracking updates collection
+
+    // Post: creat a new user
+    app.post('/users', async (req, res)=>{
+      const email = req.body.email;
+      const userExists = await usersCollection.findOne({email})
+
+      if(userExists){
+        const lastLogin = req.body.last_login_data
+        // UPDATE last login date
+      const updateRes = await usersCollection.updateOne({ email },
+        { $set: { last_login_date: lastLogin} });     
+        
+        return res.status(200).send({message: "user already exists",  updated: true})
+      }
+
+      const user = req.body;
+      const result = await usersCollection.insertOne(user);
+      res.send(result)
+
+    })
 
     // get all parcels 
     app.get("/parcels", async (req, res) => {
@@ -113,6 +135,51 @@ async function run() {
     res.status(500).json({ message: "Failed to delete parcel" });
   }
 });
+
+
+
+// POST: Add a new tracking update (one document per update)
+// app.post("/tracking/update", async (req, res) => {
+//     try {
+//         const { parcelId, trackingId, status, location } = req.body;
+
+//         if (!parcelId || !trackingId || !status) {
+//             return res.status(400).json({ message: "Missing required fields (parcelId, trackingId, status)." });
+//         }
+
+//         // 1. Create the new tracking record
+//         const newTrackingRecord = {
+//             parcelId: parcelId,
+//             trackingId: trackingId,
+//             status: status,
+//             location: location || "N/A", // Location is optional
+//             timestamp: new Date()
+//         };
+
+//         const result = await trackingCollection.insertOne(newTrackingRecord);
+
+//         // 2. Optionally, update the main 'parcels' collection with the latest status
+//         // This is good for displaying the current status quickly in lists
+//         const updateParcelResult = await parcelsCollection.updateOne(
+//             { _id: new ObjectId(parcelId) },
+//             { $set: { currentStatus: status, lastUpdated: newTrackingRecord.timestamp } }
+//         );
+
+
+//         res.status(201).json({
+//             message: "Tracking update successfully recorded.",
+//             insertedId: result.insertedId,
+//             parcelUpdate: updateParcelResult.modifiedCount > 0 ? true : false
+//         });
+
+//     } catch (error) {
+//         console.error("Error inserting tracking update:", error);
+//         res.status(500).json({ message: "Failed to insert tracking update." });
+//     }
+// });
+
+
+
 
 
   // ========================= Stripe Payment Integration =========================//
