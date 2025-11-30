@@ -1,8 +1,10 @@
-import express from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-import { MongoClient, ObjectId, ServerApiVersion } from 'mongodb';
-import Stripe from "stripe";
+const express = require('express');
+const cors = require('cors');
+const  dotenv = require('dotenv')
+const { MongoClient, ObjectId, ServerApiVersion } = require('mongodb');
+const Stripe = require('stripe')
+const admin = require("firebase-admin");
+
 
 dotenv.config();
 const stripe = new Stripe(process.env.PAYMENT_SECRET_KEY);
@@ -13,6 +15,16 @@ const PORT = process.env.PORT || 5000;
 // Middleware
 app.use(cors());
 app.use(express.json()); // to parse JSON request bodies
+
+
+// firbase admin key
+const serviceAccount = require("./firebase-admin-key.json");
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount)
+});
+
+
+
 
 //========================= MongoDB connection setup =========================//
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.negonxc.mongodb.net/?appName=Cluster0`;
@@ -37,6 +49,31 @@ async function run() {
     const paymentsCollection = db.collection("payments"); // payment history collection
     // const trackingCollection = db.collection("tracking"); // tracking updates collection
 
+    //============= custom Middleware 
+    const verifyFBToken = async (req, res, next)=>{
+      const authHeader = req.headers.authorization;
+      if(!authHeader){
+        return res.status(401).send({message: "unauthorized access"})
+      }
+
+      const token = authHeader.split(' ')[1]
+      if(!token){
+        return res.status(401).send({message: "unauthorized access"})
+      }
+
+      //========= verify the token
+      try {
+        const decoded = await admin.auth().verifyIdToken(token);
+        req.decoded = decoded;
+        next();
+
+      } catch (error) {
+           return res.status(403).send({message: "forbidden access"})
+      } 
+
+ 
+    } 
+
     // Post: creat a new user
     app.post('/users', async (req, res)=>{
       const email = req.body.email;
@@ -57,29 +94,27 @@ async function run() {
 
     })
 
-    // get all parcels 
-    app.get("/parcels", async (req, res) => {
-      const parcels = await parcelsCollection.find().toArray();
-      res.json(parcels);
-    });
 
     // GET: All parcels or parcels by user (senderEmail), sorted by latest
-    app.get("/parcels", async (req, res) => {
-        try {
-            const userEmail = req.query.senderEmail;
-            
-            const query = userEmail ? { senderEmail: userEmail } : {};
-            const options = {
-                sort: { createdAt: -1 } // Newest first
-            }
+   app.get("/parcels", verifyFBToken, async (req, res) => {
+  try {
+    // Token theke email
+    const tokenEmail = req.decoded.email;
 
-            const parcels = await parcelsCollection.find(query, options).toArray();
-            res.send(parcels);
-        } catch (error) {
-            console.log("Error fetching parcels:", error)
-            res.status(500).json({ message: "Failed to get parcels." });
-        }
-    });
+    // Only logged-in user's parcels
+    const query = { senderEmail: tokenEmail };
+
+    const options = { sort: { createdAt: -1 } };
+
+    const parcels = await parcelsCollection.find(query, options).toArray();
+
+    res.send(parcels);
+  } catch (error) {
+    console.log("Error fetching parcels:", error);
+    res.status(500).json({ message: "Failed to get parcels." });
+  }
+});
+
 
 
     // POST: Create a new parcel 
@@ -183,7 +218,7 @@ async function run() {
 
 
   // ========================= Stripe Payment Integration =========================//
-  app.post('/create-payment-intent', async (req, res) => {
+  app.post('/create-payment-intent', verifyFBToken, async (req, res) => {
     const amountInCents = req.body.amountInCents
     try {
       const paymentIntent = await stripe.paymentIntents.create({
@@ -239,9 +274,14 @@ app.post("/parcels/payment/:id", async (req, res) => {
 });
 
   // GET: Payment history for a user
-app.get("/payments/user/:email", async (req, res) => {
+app.get("/payments/user/:email", verifyFBToken,  async (req, res) => {
   try {
     const email = req.params.email;
+    console.log('decoded', req.decoded)
+
+    if(req.decoded.email !== email){
+      return res.status(403).send({message: 'forbidden access'})
+    }
 
     const query = { userEmail: email };
     const options = { sort: { createdAt: -1 } };
