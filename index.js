@@ -47,6 +47,7 @@ async function run() {
     const usersCollection = db.collection("users") // users collection 
     const parcelsCollection = db.collection("parcels"); // your collection
     const paymentsCollection = db.collection("payments"); // payment history collection
+    const ridersCollection = db.collection('riders') // riders collection
     // const trackingCollection = db.collection("tracking"); // tracking updates collection
 
     //============= custom Middleware 
@@ -93,6 +94,45 @@ async function run() {
       res.send(result)
 
     })
+
+
+    app.get('/users/search', async(req, res)=>{
+      const emailQuery = req.query.email;
+      if(!emailQuery){
+        return res.status(400).send({message:"Missing email query"});
+      }
+
+      const regex = new RegExp(emailQuery, 'i'); // Case-insenssitive partial match 
+      try {
+          const users = await usersCollection.find({email: {$regex: regex}})
+          .project({email:1, created_date: 1, role:1})
+          .limit(10).toArray();
+          res.send(users)
+      } catch (error) {
+        console.error("Error searching users", error)
+        res.status(500).send({message: "Error Searching users"}) 
+      }
+    })
+
+
+    app.patch('/users/:id/role', async(req, res)=>{
+      const {id}= req.params;
+      const {role} = req.body;
+
+      if(!['admin','user'].includes(role)){
+        return res.status(400).send({message:'Invalid role'})
+      }
+
+      try {
+        const result = await usersCollection.updateOne({_id: new ObjectId}, {$set: {role}});
+        res.send({message:`User role updated to ${role}`, result})
+      } catch (error) {
+        console.error("Error Updating user role", error)
+        res.status(500).send({message: 'Failed to update user role'})
+      }
+
+    })
+
 
 
     // GET: All parcels or parcels by user (senderEmail), sorted by latest
@@ -170,6 +210,78 @@ async function run() {
     res.status(500).json({ message: "Failed to delete parcel" });
   }
 });
+
+
+  // ===========================  Riders api =================///
+  app.post('/riders', async(req, res)=>{
+    const rider = req.body;
+    const result = await ridersCollection.insertOne(rider)
+    res.send(result)
+  })
+
+  // GET: Load pending riders from riders collection
+app.get("/riders/pending", async (req, res) => {
+  try {
+    const query = { status: "pending" };
+
+    const options = {
+      sort: { createdAt: -1 } // latest first
+    };
+
+    const pendingRiders = await ridersCollection.find(query, options).toArray();
+
+    res.send(pendingRiders);
+  } catch (error) {
+    console.log("Error loading pending riders:", error);
+    res.status(500).json({ message: "Failed to load pending riders" });
+  }
+});
+
+
+// PATCH: Update rider status (approve or reject)
+app.patch("/riders/update/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { status, email } = req.body;   // active / rejected / pending
+
+    const filter = { _id: new ObjectId(id) };
+
+    const updateDoc = {
+      $set: {
+        status: status,
+        updatedAt: new Date()
+      }
+    };
+
+    const result = await ridersCollection.updateOne(filter, updateDoc);
+    // update user roale 
+    if(status === 'active'){
+        const useQuery = {email};
+        const userUpdateDoc = {
+          $set :{
+            role: 'rider'
+          }
+        };
+        const roleResult = await usersCollection.updateOne(useQuery, userUpdateDoc);
+        console.log(roleResult.modifiedCount)
+
+
+    }
+
+    res.send(result); // contains matchedCount & modifiedCount
+
+  } catch (error) {
+    console.log("Error updating rider:", error);
+    res.status(500).json({ message: "Failed to update rider status" });
+  }
+});
+
+
+app.get('/riders/active', async(req,res)=>{
+  const result = await ridersCollection.find({status: 'active'}).toArray();
+  res.send(result)
+})
+
 
 
 
